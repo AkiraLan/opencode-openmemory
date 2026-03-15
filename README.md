@@ -67,39 +67,46 @@ Create `~/.config/opencode/openmemory.jsonc`:
 
 ```jsonc
 {
-  // Mem0 API URL
-  "apiUrl": "https://api.mem0.ai",
-
-  // Required: Mem0 API key
+  // Required if OPENMEMORY_API_KEY is not set in the environment.
   "apiKey": "m0-...",
 
-  // Optional: workspace routing for Mem0 Platform API
+  // Mem0 Platform API base URL.
+  // Leave this as-is unless you use a self-hosted or proxy endpoint.
+  "apiUrl": "https://api.mem0.ai",
+
+  // Optional: workspace routing for Mem0 Platform API.
+  // Leave empty to use the API key default scope.
   "orgId": "",
   "projectId": "",
 
-  // Optional: custom regex patterns that trigger memory capture
+  // Optional: additional regex patterns that trigger memory capture.
+  // Built-in English trigger keywords remain enabled.
   "keywordPatterns": ["\\bremember this\\b", "\\bnote this\\b"],
 
-  // Optional: extra filtering guidance appended to the memory-capture nudge
+  // Optional: extra storage guidance appended to the memory-capture nudge.
   "filterPrompt": "Only store durable preferences, workflows, and project conventions.",
 
-  // Optional: preemptive compaction threshold from 0 to 1
+  // Optional: preemptive compaction threshold from 0 to 1.
+  // Higher values compact less aggressively.
   "compactionThreshold": 0.8,
-  
-  // Search settings
+
+  // Retrieval tuning. similarityThreshold and minSalience must be between 0 and 1.
   "similarityThreshold": 0.6,
+  "minSalience": 0.3,
+
+  // Result limits. Use positive integers only.
   "maxMemories": 5,
   "maxProjectMemories": 10,
   "maxProfileItems": 5,
-  "minSalience": 0.3,
-  
-  // Context injection
+
+  // Whether to inject the generated user profile into prompt context.
   "injectProfile": true,
-  
-  // Scope prefix for organizing memories
+
+  // Prefix used for generated scope tags and namespaces.
   "scopePrefix": "opencode",
-  
-  // Default sector for storing memories
+
+  // Default sector used when saving memories.
+  // Allowed values: "episodic", "semantic", "procedural", "emotional", "reflective"
   "defaultSector": "semantic"
 }
 ```

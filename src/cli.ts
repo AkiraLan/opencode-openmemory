@@ -339,34 +339,47 @@ function createOpenMemoryConfig(): boolean {
   mkdirSync(OPENCODE_CONFIG_DIR, { recursive: true });
   
   const config = `{
-  // Mem0 Platform API settings
-  "apiUrl": "https://api.mem0.ai",
+  // Required if OPENMEMORY_API_KEY is not set in the environment.
   // "apiKey": "m0-your-api-key",
-  // Optional: workspace routing
+
+  // Mem0 Platform API base URL.
+  // Leave this as-is unless you are using a self-hosted or proxy endpoint.
+  "apiUrl": "https://api.mem0.ai",
+
+  // Optional: workspace routing for Mem0 Platform API.
+  // Leave empty to use the API key default scope.
   // "orgId": "",
   // "projectId": "",
-  // Optional: custom memory trigger regex patterns
+
+  // Optional: additional regex patterns that trigger memory capture.
+  // The built-in English trigger keywords remain enabled.
   // "keywordPatterns": ["\\\\bremember this\\\\b", "\\\\bnote this\\\\b"],
-  // Optional: extra instruction appended when memory capture is triggered
+
+  // Optional: extra storage guidance appended when memory capture is triggered.
   // "filterPrompt": "Only store durable preferences, workflows, and project conventions.",
-  // Optional: compaction threshold from 0 to 1
-  // "compactionThreshold": 0.8,
-  
-  // Search settings
+
+  // Optional: preemptive compaction threshold from 0 to 1.
+  // Higher values compact less aggressively.
+  "compactionThreshold": 0.8,
+
+  // Retrieval tuning.
+  // similarityThreshold and minSalience must be between 0 and 1.
   "similarityThreshold": 0.6,
+  "minSalience": 0.3,
+
+  // Result limits. Use positive integers only.
   "maxMemories": 5,
   "maxProjectMemories": 10,
   "maxProfileItems": 5,
-  "minSalience": 0.3,
-  
-  // Context injection
+
+  // Whether to inject the generated user profile into prompt context.
   "injectProfile": true,
-  
-  // Scope prefix for organizing memories
+
+  // Prefix used for generated scope tags and namespaces.
   "scopePrefix": "opencode",
-  
-  // Default sector for storing memories
-  // Options: "episodic", "semantic", "procedural", "emotional", "reflective"
+
+  // Default sector used when saving memories.
+  // Allowed values: "episodic", "semantic", "procedural", "emotional", "reflective"
   "defaultSector": "semantic"
 }
 `;

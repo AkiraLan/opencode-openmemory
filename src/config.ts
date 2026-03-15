@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { stripJsoncComments } from "./services/jsonc.js";
+import type { MemorySector } from "./types/index.js";
 
 const CONFIG_DIR = join(homedir(), ".config", "opencode");
 const CONFIG_FILES = [
@@ -28,6 +29,14 @@ interface OpenMemoryConfig {
   scopePrefix?: string;
   defaultSector?: string;
 }
+
+const VALID_MEMORY_SECTORS: readonly MemorySector[] = [
+  "episodic",
+  "semantic",
+  "procedural",
+  "emotional",
+  "reflective",
+];
 
 const DEFAULTS: Required<Omit<OpenMemoryConfig, "apiKey">> = {
   apiUrl: "https://api.mem0.ai",
@@ -62,15 +71,35 @@ function loadConfig(): OpenMemoryConfig {
 }
 
 const fileConfig = loadConfig();
+
+function readString(value: unknown, fallback: string): string {
+  return typeof value === "string" ? value : fallback;
+}
+
+function readBoolean(value: unknown, fallback: boolean): boolean {
+  return typeof value === "boolean" ? value : fallback;
+}
+
+function readUnitInterval(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1
+    ? value
+    : fallback;
+}
+
+function readPositiveInteger(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : fallback;
+}
+
+function readMemorySector(value: unknown, fallback: MemorySector): MemorySector {
+  return typeof value === "string" &&
+    (VALID_MEMORY_SECTORS as readonly string[]).includes(value)
+    ? (value as MemorySector)
+    : fallback;
+}
+
 const keywordPatterns = Array.isArray(fileConfig.keywordPatterns)
   ? fileConfig.keywordPatterns.filter((pattern): pattern is string => typeof pattern === "string")
   : DEFAULTS.keywordPatterns;
-const compactionThreshold =
-  typeof fileConfig.compactionThreshold === "number" &&
-  fileConfig.compactionThreshold >= 0 &&
-  fileConfig.compactionThreshold <= 1
-    ? fileConfig.compactionThreshold
-    : DEFAULTS.compactionThreshold;
 
 function isPlaceholderApiKey(value: string | undefined): boolean {
   if (!value) return true;
@@ -87,17 +116,17 @@ export const CONFIG = {
   apiUrl: OPENMEMORY_API_URL,
   orgId: OPENMEMORY_ORG_ID,
   projectId: OPENMEMORY_PROJECT_ID,
-  filterPrompt: fileConfig.filterPrompt ?? DEFAULTS.filterPrompt,
+  filterPrompt: readString(fileConfig.filterPrompt, DEFAULTS.filterPrompt),
   keywordPatterns,
-  compactionThreshold,
-  similarityThreshold: fileConfig.similarityThreshold ?? DEFAULTS.similarityThreshold,
-  maxMemories: fileConfig.maxMemories ?? DEFAULTS.maxMemories,
-  maxProjectMemories: fileConfig.maxProjectMemories ?? DEFAULTS.maxProjectMemories,
-  maxProfileItems: fileConfig.maxProfileItems ?? DEFAULTS.maxProfileItems,
-  minSalience: fileConfig.minSalience ?? DEFAULTS.minSalience,
-  injectProfile: fileConfig.injectProfile ?? DEFAULTS.injectProfile,
-  scopePrefix: fileConfig.scopePrefix ?? DEFAULTS.scopePrefix,
-  defaultSector: fileConfig.defaultSector ?? DEFAULTS.defaultSector,
+  compactionThreshold: readUnitInterval(fileConfig.compactionThreshold, DEFAULTS.compactionThreshold),
+  similarityThreshold: readUnitInterval(fileConfig.similarityThreshold, DEFAULTS.similarityThreshold),
+  maxMemories: readPositiveInteger(fileConfig.maxMemories, DEFAULTS.maxMemories),
+  maxProjectMemories: readPositiveInteger(fileConfig.maxProjectMemories, DEFAULTS.maxProjectMemories),
+  maxProfileItems: readPositiveInteger(fileConfig.maxProfileItems, DEFAULTS.maxProfileItems),
+  minSalience: readUnitInterval(fileConfig.minSalience, DEFAULTS.minSalience),
+  injectProfile: readBoolean(fileConfig.injectProfile, DEFAULTS.injectProfile),
+  scopePrefix: readString(fileConfig.scopePrefix, DEFAULTS.scopePrefix),
+  defaultSector: readMemorySector(fileConfig.defaultSector, DEFAULTS.defaultSector),
 };
 
 export function isConfigured(): boolean {
