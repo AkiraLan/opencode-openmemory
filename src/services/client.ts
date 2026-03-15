@@ -1,9 +1,9 @@
 import {
   CONFIG,
-  OPENMEMORY_API_KEY,
-  OPENMEMORY_API_URL,
-  OPENMEMORY_ORG_ID,
-  OPENMEMORY_PROJECT_ID,
+  MEM0_API_KEY,
+  MEM0_API_URL,
+  MEM0_ORG_ID,
+  MEM0_PROJECT_ID,
 } from "../config.js";
 import { log } from "./logger.js";
 import type {
@@ -117,10 +117,10 @@ export class Mem0RESTClient implements IMemoryBackendClient {
   private projectId?: string;
 
   constructor() {
-    this.baseUrl = OPENMEMORY_API_URL.replace(/\/+$/, "");
-    this.apiKey = OPENMEMORY_API_KEY;
-    this.orgId = OPENMEMORY_ORG_ID || undefined;
-    this.projectId = OPENMEMORY_PROJECT_ID || undefined;
+    this.baseUrl = MEM0_API_URL.replace(/\/+$/, "");
+    this.apiKey = MEM0_API_KEY;
+    this.orgId = MEM0_ORG_ID || undefined;
+    this.projectId = MEM0_PROJECT_ID || undefined;
   }
 
   private async fetch(path: string, options: RequestInit = {}): Promise<Response> {
@@ -158,7 +158,7 @@ export class Mem0RESTClient implements IMemoryBackendClient {
             [
               `Unexpected cross-origin redirect from ${requestUrl}`,
               `to ${redirectUrl}.`,
-              "This usually means OPENMEMORY_API_URL points to a non-API host or proxy.",
+              "This usually means MEM0_API_URL points to a non-API host or proxy.",
             ].join(" ")
           );
         }

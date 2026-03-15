@@ -19,7 +19,7 @@ const DEFAULT_MEMORY_KEYWORD_PATTERN =
   /\b(remember|memorize|save\s+this|note\s+this|keep\s+in\s+mind|don'?t\s+forget|learn\s+this|store\s+this|record\s+this|make\s+a\s+note|take\s+note|jot\s+down|commit\s+to\s+memory|remember\s+that|never\s+forget|always\s+remember)\b/i;
 
 const MEMORY_NUDGE_MESSAGE = `[MEMORY TRIGGER DETECTED]
-The user wants you to remember something. You MUST use the \`openmemory\` tool with \`mode: "add"\` to save this information.
+The user wants you to remember something. You MUST use the \`mem0\` tool with \`mode: "add"\` to save this information.
 
 Extract the key information the user wants remembered and save it as a concise, searchable memory.
 - Use \`scope: "project"\` for project-specific preferences (e.g., "run lint with tests")
@@ -254,7 +254,7 @@ export const OpenMemoryPlugin: Plugin = async (ctx: PluginInput) => {
     },
 
     tool: {
-      openmemory: tool({
+      mem0: tool({
         description:
           "Manage and query the Mem0-backed persistent memory system. Use 'search' to find relevant memories, 'add' to store new knowledge, 'profile' to view user profile, 'list' to see recent memories, 'forget' to remove a memory, and 'feedback' to submit feedback for a memory.",
         args: {
@@ -298,7 +298,7 @@ export const OpenMemoryPlugin: Plugin = async (ctx: PluginInput) => {
             return JSON.stringify({
               success: false,
               error:
-                "Mem0 not configured. Set OPENMEMORY_API_KEY or configure apiKey in ~/.config/opencode/openmemory.jsonc.",
+                "Mem0 not configured. Set MEM0_API_KEY or configure apiKey in ~/.config/opencode/mem0.jsonc.",
             });
           }
 

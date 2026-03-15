@@ -83,7 +83,7 @@ The plugin will connect to Mem0 Platform API at `https://api.mem0.ai`.
 
 ## Configuration
 
-Create `~/.config/opencode/openmemory.jsonc`:
+Create `~/.config/opencode/mem0.jsonc`:
 
 ```jsonc
 {
@@ -153,7 +153,7 @@ Use trigger phrases to save memories:
 
 ### Tool Commands
 
-The `openmemory` tool is available with these modes:
+The `mem0` tool is available with these modes:
 
 | Mode | Description | Arguments |
 |------|-------------|-----------|
@@ -188,10 +188,10 @@ export OPENMEMORY_PROJECT_ID=""
 
 ### Initialize Memory
 
-Run the `/openmemory-init` command to deeply research your codebase and populate memory:
+Run the `/mem0-init` command to deeply research your codebase and populate memory:
 
 ```
-/openmemory-init
+/mem0-init
 ```
 
 ## Context Compaction

@@ -6,11 +6,11 @@ import type { MemorySector } from "./types/index.js";
 
 const CONFIG_DIR = join(homedir(), ".config", "opencode");
 const CONFIG_FILES = [
-  join(CONFIG_DIR, "openmemory.jsonc"),
-  join(CONFIG_DIR, "openmemory.json"),
+  join(CONFIG_DIR, "mem0.jsonc"),
+  join(CONFIG_DIR, "mem0.json"),
 ];
 
-interface OpenMemoryConfig {
+interface Mem0Config {
   apiUrl?: string;
   apiKey?: string;
   orgId?: string;
@@ -38,7 +38,7 @@ const VALID_MEMORY_SECTORS: readonly MemorySector[] = [
   "reflective",
 ];
 
-const DEFAULTS: Required<Omit<OpenMemoryConfig, "apiKey">> = {
+const DEFAULTS: Required<Omit<Mem0Config, "apiKey">> = {
   apiUrl: "https://api.mem0.ai",
   orgId: "",
   projectId: "",
@@ -55,13 +55,13 @@ const DEFAULTS: Required<Omit<OpenMemoryConfig, "apiKey">> = {
   defaultSector: "semantic",
 };
 
-function loadConfig(): OpenMemoryConfig {
+function loadConfig(): Mem0Config {
   for (const path of CONFIG_FILES) {
     if (existsSync(path)) {
       try {
         const content = readFileSync(path, "utf-8");
         const json = stripJsoncComments(content);
-        return JSON.parse(json) as OpenMemoryConfig;
+        return JSON.parse(json) as Mem0Config;
       } catch {
         // Invalid config, use defaults
       }
@@ -107,15 +107,15 @@ function isPlaceholderApiKey(value: string | undefined): boolean {
   return normalized.length === 0 || normalized === "m0-your-api-key";
 }
 
-export const OPENMEMORY_API_KEY = fileConfig.apiKey ?? process.env.OPENMEMORY_API_KEY;
-export const OPENMEMORY_API_URL = fileConfig.apiUrl ?? process.env.OPENMEMORY_API_URL ?? DEFAULTS.apiUrl;
-export const OPENMEMORY_ORG_ID = fileConfig.orgId ?? process.env.OPENMEMORY_ORG_ID ?? DEFAULTS.orgId;
-export const OPENMEMORY_PROJECT_ID = fileConfig.projectId ?? process.env.OPENMEMORY_PROJECT_ID ?? DEFAULTS.projectId;
+export const MEM0_API_KEY = fileConfig.apiKey ?? process.env.MEM0_API_KEY;
+export const MEM0_API_URL = fileConfig.apiUrl ?? process.env.MEM0_API_URL ?? DEFAULTS.apiUrl;
+export const MEM0_ORG_ID = fileConfig.orgId ?? process.env.MEM0_ORG_ID ?? DEFAULTS.orgId;
+export const MEM0_PROJECT_ID = fileConfig.projectId ?? process.env.MEM0_PROJECT_ID ?? DEFAULTS.projectId;
 
 export const CONFIG = {
-  apiUrl: OPENMEMORY_API_URL,
-  orgId: OPENMEMORY_ORG_ID,
-  projectId: OPENMEMORY_PROJECT_ID,
+  apiUrl: MEM0_API_URL,
+  orgId: MEM0_ORG_ID,
+  projectId: MEM0_PROJECT_ID,
   filterPrompt: readString(fileConfig.filterPrompt, DEFAULTS.filterPrompt),
   keywordPatterns,
   compactionThreshold: readUnitInterval(fileConfig.compactionThreshold, DEFAULTS.compactionThreshold),
@@ -130,5 +130,5 @@ export const CONFIG = {
 };
 
 export function isConfigured(): boolean {
-  return !isPlaceholderApiKey(OPENMEMORY_API_KEY);
+  return !isPlaceholderApiKey(MEM0_API_KEY);
 }

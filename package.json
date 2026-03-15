@@ -16,7 +16,7 @@
   "keywords": [
     "opencode",
     "plugin",
-    "openmemory",
+    "mem0",
     "memory",
     "ai",
     "coding-agent",
@@ -28,12 +28,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/happycastle114/opencode-mem0"
+    "url": "https://github.com/AkiraLan/opencode-mem0"
   },
   "bugs": {
-    "url": "https://github.com/happycastle114/opencode-mem0/issues"
+    "url": "https://github.com/AkiraLan/opencode-mem0/issues"
   },
-  "homepage": "https://github.com/happycastle114/opencode-mem0#readme",
+  "homepage": "https://github.com/AkiraLan/opencode-mem0#readme",
   "publishConfig": {
     "access": "public"
   },

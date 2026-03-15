@@ -15,9 +15,9 @@ const LEGACY_PLUGIN_ENTRIES = [
   "@happycastle/opencode-mem0@latest",
 ];
 
-const OPENMEMORY_INIT_COMMAND = `# Initializing OpenMemory
+const MEM0_INIT_COMMAND = `# Initializing Mem0
 
-You are initializing persistent memory for this codebase. This is not just data collection - you're building context that will make you significantly more effective across all future sessions.
+You are initializing Mem0 persistent memory for this codebase. This is not just data collection - you're building context that will make you significantly more effective across all future sessions.
 
 ## Understanding Context
 
@@ -59,7 +59,7 @@ How the codebase works and why:
 
 ## Memory Sectors (OpenMemory HSG)
 
-OpenMemory uses a Hierarchical Semantic Graph with 5 sectors:
+Mem0 uses a Hierarchical Semantic Graph with 5 sectors:
 - **episodic**: Events, experiences, temporal sequences
 - **semantic**: Facts, concepts, general knowledge (default)
 - **procedural**: Skills, how-to knowledge, processes
@@ -121,10 +121,10 @@ Good (thorough):
 
 ## Saving Memories
 
-Use the \`openmemory\` tool for each distinct insight:
+Use the \`mem0\` tool for each distinct insight:
 
 \`\`\`
-openmemory(mode: "add", content: "...", type: "...", scope: "project")
+mem0(mode: "add", content: "...", type: "...", scope: "project")
 \`\`\`
 
 **Types:**
@@ -165,7 +165,7 @@ Then ask: "I've initialized memory with X insights. Want me to continue refining
 ## Your Task
 
 1. Ask upfront questions (research depth, rules, preferences)
-2. Check existing memories: \`openmemory(mode: "list", scope: "project")\`
+2. Check existing memories: \`mem0(mode: "list", scope: "project")\`
 3. Research based on chosen depth
 4. Save memories incrementally as you discover insights
 5. Reflect and verify completeness
@@ -275,9 +275,9 @@ function createNewConfig(): boolean {
     const config = `{
   "plugin": ["${PLUGIN_ENTRY}"],
   "command": {
-    "openmemory-init": {
+    "mem0-init": {
       "description": "Initialize OpenMemory with comprehensive codebase knowledge",
-      "template": ${JSON.stringify(OPENMEMORY_INIT_COMMAND)}
+      "template": ${JSON.stringify(MEM0_INIT_COMMAND)}
     }
   }
 }
@@ -307,9 +307,9 @@ function createCommand(): boolean {
       config.command && typeof config.command === "object" && !Array.isArray(config.command)
     ) ? (config.command as Record<string, unknown>) : {};
 
-    commandConfig["openmemory-init"] = {
-      description: "Initialize OpenMemory with comprehensive codebase knowledge",
-      template: OPENMEMORY_INIT_COMMAND,
+    commandConfig["mem0-init"] = {
+      description: "Initialize Mem0 with comprehensive codebase knowledge",
+      template: MEM0_INIT_COMMAND,
     };
 
     config.command = commandConfig;
@@ -320,16 +320,16 @@ function createCommand(): boolean {
 
     writeFileSync(configPath, JSON.stringify(config, null, 2));
 
-    const legacyCommandPath = join(OPENCODE_CONFIG_DIR, "command", "openmemory-init.md");
+    const legacyCommandPath = join(OPENCODE_CONFIG_DIR, "command", "mem0-init.md");
     if (existsSync(legacyCommandPath)) {
       rmSync(legacyCommandPath);
-      console.log("✓ Removed legacy /openmemory-init markdown command");
+      console.log("✓ Removed legacy /mem0-init markdown command");
     }
 
-    console.log(`✓ Registered /openmemory-init command in ${configPath}`);
+    console.log(`✓ Registered /mem0-init command in ${configPath}`);
     return true;
   } catch (err) {
-    console.error("✗ Failed to create /openmemory-init command:", err);
+    console.error("✗ Failed to create /mem0-init command:", err);
     return false;
   }
 }
@@ -391,10 +391,10 @@ function disableAutoCompactHook(): boolean {
 
 function createOpenMemoryConfig(): boolean {
   try {
-    const configPath = join(OPENCODE_CONFIG_DIR, "openmemory.jsonc");
+    const configPath = join(OPENCODE_CONFIG_DIR, "mem0.jsonc");
 
     if (existsSync(configPath)) {
-      console.log("✓ OpenMemory config already exists");
+      console.log("✓ Mem0 config already exists");
       return true;
     }
 
@@ -501,10 +501,10 @@ async function install(options: InstallOptions): Promise<number> {
     }
   }
 
-  // Step 2: Create /openmemory-init command
-  console.log("\nStep 2: Create /openmemory-init command");
+  // Step 2: Create /mem0-init command
+  console.log("\nStep 2: Create /mem0-init command");
   if (options.tui) {
-    const shouldCreate = await confirm(rl!, "Add /openmemory-init command?");
+    const shouldCreate = await confirm(rl!, "Add /mem0-init command?");
     if (!shouldCreate) {
       console.log("Skipped.");
     } else {
@@ -517,7 +517,7 @@ async function install(options: InstallOptions): Promise<number> {
   // Step 3: Create OpenMemory config
   console.log("\nStep 3: Create OpenMemory configuration");
   if (options.tui) {
-    const shouldCreate = await confirm(rl!, "Create OpenMemory config file?");
+    const shouldCreate = await confirm(rl!, "Create Mem0 config file?");
     if (!shouldCreate) {
       console.log("Skipped.");
     } else {
@@ -563,7 +563,7 @@ async function install(options: InstallOptions): Promise<number> {
   console.log("\n🚀 Final step: Configure Mem0\n");
   console.log("1. Create a Mem0 API key in the dashboard:");
   console.log("   https://app.mem0.ai/\n");
-  console.log("2. Update ~/.config/opencode/openmemory.jsonc with your key.");
+  console.log("2. Update ~/.config/opencode/mem0.jsonc with your key.");
   console.log("   Optional: also set orgId/projectId if your workspace requires them.\n");
   console.log("3. Reference docs:");
   console.log("   https://docs.mem0.ai/api-reference");
