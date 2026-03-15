@@ -74,13 +74,13 @@ function detectMemoryKeyword(text: string): boolean {
 }
 
 type ModelLimitMap = Map<string, number>;
+const MODEL_LIMIT_FETCH_TIMEOUT_MS = 3_000;
 
 function getModelKey(providerID: string, modelID: string): string {
   return `${providerID}:${modelID}`;
 }
 
-async function fetchModelLimits(ctx: PluginInput): Promise<ModelLimitMap> {
-  const modelLimits = new Map<string, number>();
+async function populateModelLimits(ctx: PluginInput, modelLimits: ModelLimitMap): Promise<void> {
   const client = ctx.client as unknown as {
     provider?: { list?: () => Promise<{ data?: unknown[] } | unknown[]> };
     providers?: { list?: () => Promise<{ data?: unknown[] } | unknown[]> };
@@ -91,11 +91,16 @@ async function fetchModelLimits(ctx: PluginInput): Promise<ModelLimitMap> {
     client.providers?.list?.bind(client.providers);
 
   if (!listProviders) {
-    return modelLimits;
+    return;
   }
 
   try {
-    const result = await listProviders();
+    const result = await Promise.race([
+      listProviders(),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error(`Timed out after ${MODEL_LIMIT_FETCH_TIMEOUT_MS}ms`)), MODEL_LIMIT_FETCH_TIMEOUT_MS)
+      ),
+    ]);
     const providers = Array.isArray(result)
       ? result
       : Array.isArray((result as { data?: unknown[] })?.data)
@@ -123,8 +128,6 @@ async function fetchModelLimits(ctx: PluginInput): Promise<ModelLimitMap> {
       error: error instanceof Error ? error.message : String(error),
     });
   }
-
-  return modelLimits;
 }
 
 export const OpenMemoryPlugin: Plugin = async (ctx: PluginInput) => {
@@ -132,8 +135,11 @@ export const OpenMemoryPlugin: Plugin = async (ctx: PluginInput) => {
   const scopes = getScopes(directory);
   const tags = getTags(directory);
   const injectedSessions = new Set<string>();
-  const modelLimits = await fetchModelLimits(ctx);
+  const modelLimits = new Map<string, number>();
   log("Plugin init", { directory, scopes, configured: isConfigured() });
+
+  // Fetch provider limits in the background so plugin initialization never blocks OpenCode startup.
+  void populateModelLimits(ctx, modelLimits);
 
   if (!isConfigured()) {
     log("Plugin disabled - OpenMemory not configured");
