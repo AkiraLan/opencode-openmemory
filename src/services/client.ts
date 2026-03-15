@@ -52,6 +52,12 @@ function hasAddResultsField(data: unknown): data is Mem0AddResponse {
   return typeof data === "object" && data !== null && "results" in data;
 }
 
+interface Mem0ListResponse {
+  results?: Mem0MemoryRecord[];
+  memories?: Mem0MemoryRecord[];
+  items?: Mem0MemoryRecord[];
+}
+
 interface Mem0FeedbackResponse {
   id?: string;
   feedback?: string;
@@ -69,6 +75,33 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function isRedirectStatus(status: number): boolean {
+  return status >= 300 && status < 400;
+}
+
+function extractMemoryRecords(data: unknown): Mem0MemoryRecord[] {
+  if (Array.isArray(data)) {
+    return data as Mem0MemoryRecord[];
+  }
+
+  if (!isRecord(data)) {
+    return [];
+  }
+
+  const container = data as Mem0ListResponse;
+  if (Array.isArray(container.results)) {
+    return container.results;
+  }
+  if (Array.isArray(container.memories)) {
+    return container.memories;
+  }
+  if (Array.isArray(container.items)) {
+    return container.items;
+  }
+
+  return [];
 }
 
 export class Mem0RESTClient implements IMemoryBackendClient {
@@ -94,10 +127,25 @@ export class Mem0RESTClient implements IMemoryBackendClient {
       headers.Authorization = `Token ${this.apiKey}`;
     }
 
-    return withTimeout(
-      fetch(`${this.baseUrl}${path}`, { ...options, headers }),
+    const response = await withTimeout(
+      fetch(`${this.baseUrl}${path}`, { ...options, headers, redirect: "manual" }),
       TIMEOUT_MS
     );
+
+    if (isRedirectStatus(response.status)) {
+      const location = response.headers.get("location");
+      throw new Error(
+        [
+          `Unexpected redirect from ${this.baseUrl}${path}`,
+          location ? `to ${location}` : undefined,
+          "This usually means OPENMEMORY_API_URL points to a non-API host or the upstream is redirecting POST requests.",
+        ]
+          .filter(Boolean)
+          .join(" ")
+      );
+    }
+
+    return response;
   }
 
   private withOrgProject<T extends Record<string, unknown>>(body: T): T & {
@@ -188,9 +236,9 @@ export class Mem0RESTClient implements IMemoryBackendClient {
         return { success: false, results: [], total: 0, error: `HTTP ${response.status}: ${errorText}` };
       }
 
-      const data = await response.json() as Mem0MemoryRecord[];
+      const data = extractMemoryRecords(await response.json());
       const memories = this.filterBySector(
-        (data || []).map((record) => this.toMemoryItem(record)),
+        data.map((record) => this.toMemoryItem(record)),
         options?.sector
       );
 
@@ -294,9 +342,9 @@ export class Mem0RESTClient implements IMemoryBackendClient {
         return { success: false, memories: [], error: `HTTP ${response.status}: ${errorText}` };
       }
 
-      const data = await response.json() as Mem0MemoryRecord[];
+      const data = extractMemoryRecords(await response.json());
       const memories = this.filterBySector(
-        (data || []).map((record) => this.toMemoryItem(record)),
+        data.map((record) => this.toMemoryItem(record)),
         options?.sector
       );
 

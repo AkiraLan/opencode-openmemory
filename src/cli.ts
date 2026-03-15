@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
+import { mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -7,7 +7,6 @@ import * as readline from "node:readline";
 import { parseJsonc } from "./services/jsonc.js";
 
 const OPENCODE_CONFIG_DIR = join(homedir(), ".config", "opencode");
-const OPENCODE_COMMAND_DIR = join(OPENCODE_CONFIG_DIR, "command");
 const OH_MY_OPENCODE_CONFIG = join(OPENCODE_CONFIG_DIR, "oh-my-opencode.json");
 const CLI_DIR = dirname(fileURLToPath(import.meta.url));
 const PLUGIN_ENTRY = join(CLI_DIR, "index.js");
@@ -16,11 +15,7 @@ const LEGACY_PLUGIN_ENTRIES = [
   "@happycastle/opencode-openmemory@latest",
 ];
 
-const OPENMEMORY_INIT_COMMAND = `---
-description: Initialize OpenMemory with comprehensive codebase knowledge
----
-
-# Initializing OpenMemory
+const OPENMEMORY_INIT_COMMAND = `# Initializing OpenMemory
 
 You are initializing persistent memory for this codebase. This is not just data collection - you're building context that will make you significantly more effective across all future sessions.
 
@@ -278,7 +273,13 @@ function createNewConfig(): boolean {
     mkdirSync(OPENCODE_CONFIG_DIR, { recursive: true });
 
     const config = `{
-  "plugin": ["${PLUGIN_ENTRY}"]
+  "plugin": ["${PLUGIN_ENTRY}"],
+  "command": {
+    "openmemory-init": {
+      "description": "Initialize OpenMemory with comprehensive codebase knowledge",
+      "template": ${JSON.stringify(OPENMEMORY_INIT_COMMAND)}
+    }
+  }
 }
 `;
 
@@ -293,11 +294,39 @@ function createNewConfig(): boolean {
 
 function createCommand(): boolean {
   try {
-    mkdirSync(OPENCODE_COMMAND_DIR, { recursive: true });
-    const commandPath = join(OPENCODE_COMMAND_DIR, "openmemory-init.md");
+    const configPath = findOpencodeConfig() ?? join(OPENCODE_CONFIG_DIR, "opencode.jsonc");
+    mkdirSync(OPENCODE_CONFIG_DIR, { recursive: true });
 
-    writeFileSync(commandPath, OPENMEMORY_INIT_COMMAND);
-    console.log(`✓ Created /openmemory-init command`);
+    let config: Record<string, unknown> = {};
+    if (existsSync(configPath)) {
+      const content = readFileSync(configPath, "utf-8");
+      config = parseJsonc<Record<string, unknown>>(content);
+    }
+
+    const commandConfig = (
+      config.command && typeof config.command === "object" && !Array.isArray(config.command)
+    ) ? (config.command as Record<string, unknown>) : {};
+
+    commandConfig["openmemory-init"] = {
+      description: "Initialize OpenMemory with comprehensive codebase knowledge",
+      template: OPENMEMORY_INIT_COMMAND,
+    };
+
+    config.command = commandConfig;
+
+    if (!Array.isArray(config.plugin)) {
+      config.plugin = [PLUGIN_ENTRY];
+    }
+
+    writeFileSync(configPath, JSON.stringify(config, null, 2));
+
+    const legacyCommandPath = join(OPENCODE_CONFIG_DIR, "command", "openmemory-init.md");
+    if (existsSync(legacyCommandPath)) {
+      rmSync(legacyCommandPath);
+      console.log("✓ Removed legacy /openmemory-init markdown command");
+    }
+
+    console.log(`✓ Registered /openmemory-init command in ${configPath}`);
     return true;
   } catch (err) {
     console.error("✗ Failed to create /openmemory-init command:", err);
