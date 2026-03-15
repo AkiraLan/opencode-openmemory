@@ -305,6 +305,10 @@ function createCommand(): boolean {
   }
 }
 
+function hasBuiltPlugin(): boolean {
+  return existsSync(PLUGIN_ENTRY);
+}
+
 function isOhMyOpencodeInstalled(): boolean {
   if (existsSync(OH_MY_OPENCODE_CONFIG)) return true;
 
@@ -432,6 +436,13 @@ async function install(options: InstallOptions): Promise<number> {
 
   const rl = options.tui ? createReadline() : null;
   let hasErrors = false;
+
+  if (!hasBuiltPlugin()) {
+    console.error(`✗ Built plugin entry not found at ${PLUGIN_ENTRY}`);
+    console.error("  Run `bun run build` before running the installer.");
+    if (rl) rl.close();
+    return 1;
+  }
 
   // Step 1: Register plugin in config
   console.log("Step 1: Register plugin in OpenCode config");

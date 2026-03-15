@@ -110,10 +110,16 @@ export function stripJsonTrailingCommas(content: string): string {
 
     if (!inString && char === ",") {
       let j = i + 1;
-      while (j < content.length && /\s/.test(content[j])) {
+      while (j < content.length) {
+        const lookahead = content[j];
+        if (lookahead === undefined || !/\s/.test(lookahead)) {
+          break;
+        }
         j++;
       }
-      if (content[j] === "}" || content[j] === "]") {
+
+      const trailingChar = content[j];
+      if (trailingChar === "}" || trailingChar === "]") {
         i++;
         continue;
       }
