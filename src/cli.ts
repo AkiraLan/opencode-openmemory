@@ -17,11 +17,25 @@ const LEGACY_PLUGIN_ENTRIES = [
 
 const OPENMEMORY_INIT_COMMAND = `# Initializing OpenMemory
 
-You are initializing persistent memory for this codebase. This is not just data collection - you're building context that will make you significantly more effective across all future sessions. Focus on stable working norms that will matter in future sessions, including project rules, repeatable workflows, coding style conventions, communication defaults, and important architectural context.
+You are initializing persistent memory for this codebase. This is not just data collection - you're building context that will make you significantly more effective across all future sessions.
 
 ## Understanding Context
 
 You are a **stateful** coding agent. Users expect to work with you over extended periods - potentially the entire lifecycle of a project. Your memory is how you get better over time and maintain continuity.
+
+## What to Remember
+
+### 1. Procedures (Rules & Workflows)
+Explicit rules that should always be followed:
+- "Never commit directly to main - always use feature branches"
+- "Always run lint before tests"
+- "Use conventional commits format"
+
+### 2. Preferences (Style & Conventions)  
+Project and user coding style:
+- "Prefer functional components over class components"
+- "Use early returns instead of nested conditionals"
+- "Always add JSDoc to exported functions"
 
 ### 3. Architecture & Context
 How the codebase works and why:
