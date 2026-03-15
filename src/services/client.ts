@@ -48,6 +48,10 @@ interface Mem0AddResponse {
   results?: Mem0AddResponseItem[];
 }
 
+function hasAddResultsField(data: unknown): data is Mem0AddResponse {
+  return typeof data === "object" && data !== null && "results" in data;
+}
+
 interface Mem0FeedbackResponse {
   id?: string;
   feedback?: string;
@@ -239,11 +243,14 @@ export class Mem0RESTClient implements IMemoryBackendClient {
         | Mem0AddResponse
         | Mem0AddResponseItem
         | Mem0AddResponseItem[];
-      const items = Array.isArray(data)
-        ? data
-        : Array.isArray(data.results)
-          ? data.results
-          : [data];
+      let items: Mem0AddResponseItem[];
+      if (Array.isArray(data)) {
+        items = data;
+      } else if (hasAddResultsField(data) && Array.isArray(data.results)) {
+        items = data.results;
+      } else {
+        items = [data as Mem0AddResponseItem];
+      }
       const firstItem = items[0];
       const id = firstItem?.id ?? firstItem?.memory_id;
 
