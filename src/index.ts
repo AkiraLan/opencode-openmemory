@@ -15,7 +15,7 @@ import type { MemoryScopeType, MemoryType, MemorySector } from "./types/index.js
 const CODE_BLOCK_PATTERN = /```[\s\S]*?```/g;
 const INLINE_CODE_PATTERN = /`[^`]+`/g;
 
-const MEMORY_KEYWORD_PATTERN =
+const DEFAULT_MEMORY_KEYWORD_PATTERN =
   /\b(remember|memorize|save\s+this|note\s+this|keep\s+in\s+mind|don'?t\s+forget|learn\s+this|store\s+this|record\s+this|make\s+a\s+note|take\s+note|jot\s+down|commit\s+to\s+memory|remember\s+that|never\s+forget|always\s+remember)\b/i;
 
 const MEMORY_NUDGE_MESSAGE = `[MEMORY TRIGGER DETECTED]
@@ -28,13 +28,103 @@ Extract the key information the user wants remembered and save it as a concise, 
 
 DO NOT skip this step. The user explicitly asked you to remember.`;
 
+function getMemoryKeywordPattern(): RegExp {
+  const customPatterns = CONFIG.keywordPatterns
+    .filter((pattern) => pattern.trim().length > 0)
+    .map((pattern) => {
+      try {
+        return new RegExp(pattern, "i");
+      } catch {
+        log("Invalid keyword pattern ignored", { pattern });
+        return null;
+      }
+    })
+    .filter((pattern): pattern is RegExp => pattern !== null);
+
+  if (customPatterns.length === 0) {
+    return DEFAULT_MEMORY_KEYWORD_PATTERN;
+  }
+
+  return new RegExp(
+    [DEFAULT_MEMORY_KEYWORD_PATTERN, ...customPatterns]
+      .map((pattern) => pattern.source)
+      .join("|"),
+    "i"
+  );
+}
+
+function getMemoryNudgeMessage(): string {
+  if (!CONFIG.filterPrompt.trim()) {
+    return MEMORY_NUDGE_MESSAGE;
+  }
+
+  return `${MEMORY_NUDGE_MESSAGE}
+
+Additional filtering guidance:
+${CONFIG.filterPrompt}`;
+}
+
 function removeCodeBlocks(text: string): string {
   return text.replace(CODE_BLOCK_PATTERN, "").replace(INLINE_CODE_PATTERN, "");
 }
 
 function detectMemoryKeyword(text: string): boolean {
   const textWithoutCode = removeCodeBlocks(text);
-  return MEMORY_KEYWORD_PATTERN.test(textWithoutCode);
+  return getMemoryKeywordPattern().test(textWithoutCode);
+}
+
+type ModelLimitMap = Map<string, number>;
+
+function getModelKey(providerID: string, modelID: string): string {
+  return `${providerID}:${modelID}`;
+}
+
+async function fetchModelLimits(ctx: PluginInput): Promise<ModelLimitMap> {
+  const modelLimits = new Map<string, number>();
+  const client = ctx.client as unknown as {
+    provider?: { list?: () => Promise<{ data?: unknown[] } | unknown[]> };
+    providers?: { list?: () => Promise<{ data?: unknown[] } | unknown[]> };
+  };
+
+  const listProviders =
+    client.provider?.list?.bind(client.provider) ??
+    client.providers?.list?.bind(client.providers);
+
+  if (!listProviders) {
+    return modelLimits;
+  }
+
+  try {
+    const result = await listProviders();
+    const providers = Array.isArray(result)
+      ? result
+      : Array.isArray((result as { data?: unknown[] })?.data)
+        ? (result as { data: unknown[] }).data
+        : [];
+
+    for (const provider of providers) {
+      if (!provider || typeof provider !== "object") continue;
+      const providerInfo = provider as {
+        id?: string;
+        models?: Array<{ id?: string; limit?: { context?: number } }>;
+      };
+
+      if (!providerInfo.id || !Array.isArray(providerInfo.models)) continue;
+
+      for (const model of providerInfo.models) {
+        if (!model?.id || typeof model.limit?.context !== "number") continue;
+        modelLimits.set(getModelKey(providerInfo.id, model.id), model.limit.context);
+      }
+    }
+
+    log("Loaded model context limits", { count: modelLimits.size });
+  } catch (error) {
+    log("Failed to load model context limits", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+
+  return modelLimits;
 }
 
 export const OpenMemoryPlugin: Plugin = async (ctx: PluginInput) => {
@@ -42,6 +132,7 @@ export const OpenMemoryPlugin: Plugin = async (ctx: PluginInput) => {
   const scopes = getScopes(directory);
   const tags = getTags(directory);
   const injectedSessions = new Set<string>();
+  const modelLimits = await fetchModelLimits(ctx);
   log("Plugin init", { directory, scopes, configured: isConfigured() });
 
   if (!isConfigured()) {
@@ -49,7 +140,10 @@ export const OpenMemoryPlugin: Plugin = async (ctx: PluginInput) => {
   }
 
   const compactionHook = isConfigured() && ctx.client
-    ? createCompactionHook(ctx as CompactionContext, tags, scopes)
+    ? createCompactionHook(ctx as CompactionContext, tags, scopes, {
+        threshold: CONFIG.compactionThreshold,
+        getModelLimit: (providerID, modelID) => modelLimits.get(getModelKey(providerID, modelID)),
+      })
     : null;
 
   return {
@@ -88,7 +182,7 @@ export const OpenMemoryPlugin: Plugin = async (ctx: PluginInput) => {
             sessionID: input.sessionID,
             messageID: output.message.id,
             type: "text",
-            text: MEMORY_NUDGE_MESSAGE,
+            text: getMemoryNudgeMessage(),
             synthetic: true,
           };
           output.parts.push(nudgePart);
@@ -156,10 +250,10 @@ export const OpenMemoryPlugin: Plugin = async (ctx: PluginInput) => {
     tool: {
       openmemory: tool({
         description:
-          "Manage and query the OpenMemory persistent memory system. Use 'search' to find relevant memories, 'add' to store new knowledge, 'profile' to view user profile, 'list' to see recent memories, 'forget' to remove a memory, 'reinforce' to boost memory importance.",
+          "Manage and query the Mem0-backed persistent memory system. Use 'search' to find relevant memories, 'add' to store new knowledge, 'profile' to view user profile, 'list' to see recent memories, 'forget' to remove a memory, and 'feedback' to submit feedback for a memory.",
         args: {
           mode: tool.schema
-            .enum(["add", "search", "profile", "list", "forget", "reinforce", "help"])
+            .enum(["add", "search", "profile", "list", "forget", "feedback", "help"])
             .optional(),
           content: tool.schema.string().optional(),
           query: tool.schema.string().optional(),
@@ -179,7 +273,8 @@ export const OpenMemoryPlugin: Plugin = async (ctx: PluginInput) => {
             .optional(),
           memoryId: tool.schema.string().optional(),
           limit: tool.schema.number().optional(),
-          boost: tool.schema.number().optional(),
+          feedback: tool.schema.enum(["POSITIVE", "NEGATIVE", "VERY_NEGATIVE"]).optional(),
+          reason: tool.schema.string().optional(),
         },
         async execute(args: {
           mode?: string;
@@ -190,13 +285,14 @@ export const OpenMemoryPlugin: Plugin = async (ctx: PluginInput) => {
           sector?: MemorySector;
           memoryId?: string;
           limit?: number;
-          boost?: number;
+          feedback?: "POSITIVE" | "NEGATIVE" | "VERY_NEGATIVE";
+          reason?: string;
         }) {
           if (!isConfigured()) {
             return JSON.stringify({
               success: false,
               error:
-                "OpenMemory not configured. Ensure OpenMemory MCP server is running or configure REST API.",
+                "Mem0 not configured. Set OPENMEMORY_API_KEY or configure apiKey in ~/.config/opencode/openmemory.jsonc.",
             });
           }
 
@@ -207,7 +303,7 @@ export const OpenMemoryPlugin: Plugin = async (ctx: PluginInput) => {
               case "help": {
                 return JSON.stringify({
                   success: true,
-                  message: "OpenMemory Usage Guide",
+                  message: "Mem0 Usage Guide",
                   commands: [
                     {
                       command: "add",
@@ -235,9 +331,9 @@ export const OpenMemoryPlugin: Plugin = async (ctx: PluginInput) => {
                       args: ["memoryId", "scope?"],
                     },
                     {
-                      command: "reinforce",
-                      description: "Boost memory importance",
-                      args: ["memoryId", "boost?"],
+                      command: "feedback",
+                      description: "Submit feedback for a memory",
+                      args: ["memoryId", "feedback?", "reason?"],
                     },
                   ],
                   scopes: {
@@ -467,37 +563,38 @@ export const OpenMemoryPlugin: Plugin = async (ctx: PluginInput) => {
                 });
               }
 
-              case "reinforce": {
+              case "feedback": {
                 if (!args.memoryId) {
                   return JSON.stringify({
                     success: false,
-                    error: "memoryId parameter is required for reinforce mode",
+                    error: "memoryId parameter is required for feedback mode",
                   });
                 }
 
                 const client = getMemoryClient();
-                if (!client.reinforceMemory) {
+                if (!client.createFeedback) {
                   return JSON.stringify({
                     success: false,
-                    error: "Reinforce not supported by current backend",
+                    error: "Feedback not supported by current backend",
                   });
                 }
 
-                const result = await client.reinforceMemory(
+                const result = await client.createFeedback(
                   args.memoryId,
-                  args.boost || 0.1
+                  args.feedback || "POSITIVE",
+                  args.reason
                 );
 
                 if (!result.success) {
                   return JSON.stringify({
                     success: false,
-                    error: result.error || "Failed to reinforce memory",
+                    error: result.error || "Failed to create feedback",
                   });
                 }
 
                 return JSON.stringify({
                   success: true,
-                  message: `Memory ${args.memoryId} reinforced by ${args.boost || 0.1}`,
+                  message: `Feedback ${args.feedback || "POSITIVE"} recorded for memory ${args.memoryId}`,
                 });
               }
 

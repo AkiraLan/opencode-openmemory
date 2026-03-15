@@ -1,4 +1,10 @@
-import { CONFIG, OPENMEMORY_API_URL, OPENMEMORY_API_KEY } from "../config.js";
+import {
+  CONFIG,
+  OPENMEMORY_API_KEY,
+  OPENMEMORY_API_URL,
+  OPENMEMORY_ORG_ID,
+  OPENMEMORY_PROJECT_ID,
+} from "../config.js";
 import { log } from "./logger.js";
 import type {
   IMemoryBackendClient,
@@ -11,23 +17,42 @@ import type {
   DeleteMemoryResult,
   ProfileResult,
   MemoryItem,
-  TemporalFact,
-  CreateTemporalFactInput,
-  CreateTemporalFactResult,
-  QueryTemporalFactsInput,
-  QueryTemporalFactsResult,
-  GetCurrentFactInput,
-  GetCurrentFactResult,
-  GetTimelineInput,
-  GetTimelineResult,
-  InvalidateFactInput,
-  InvalidateFactResult,
-  TemporalStatsResult,
-  CompareFactsInput,
-  CompareFactsResult,
 } from "../types/index.js";
 
 const TIMEOUT_MS = 30000;
+
+type MemoryFeedback = "POSITIVE" | "NEGATIVE" | "VERY_NEGATIVE";
+
+interface Mem0MemoryRecord {
+  id: string;
+  memory: string;
+  user_id?: string;
+  metadata?: Record<string, unknown>;
+  categories?: string[];
+  created_at?: string;
+  updated_at?: string;
+  score?: number;
+  similarity?: number;
+}
+
+interface Mem0AddResponseItem {
+  id?: string;
+  memory_id?: string;
+  data?: {
+    memory?: string;
+  };
+  memory?: string;
+}
+
+interface Mem0AddResponse {
+  results?: Mem0AddResponseItem[];
+}
+
+interface Mem0FeedbackResponse {
+  id?: string;
+  feedback?: string;
+  feedback_reason?: string;
+}
 
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   return Promise.race([
@@ -38,50 +63,21 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   ]);
 }
 
-interface OpenMemoryQueryResponse {
-  query: string;
-  matches: Array<{
-    id: string;
-    content: string;
-    score?: number;
-    sectors?: string[];
-    primary_sector?: string;
-    path?: string;
-    salience?: number;
-    last_seen_at?: number;
-  }>;
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
 
-interface OpenMemoryAddResponse {
-  id: string;
-  root_memory_id?: string;
-  primary_sector?: string;
-}
-
-interface OpenMemoryListResponse {
-  items: Array<{
-    id: string;
-    content: string;
-    tags?: string[];
-    metadata?: Record<string, unknown>;
-    created_at?: number;
-    updated_at?: number;
-    last_seen_at?: number;
-    salience?: number;
-    decay_lambda?: number;
-    primary_sector?: string;
-    version?: number;
-    user_id?: string;
-  }>;
-}
-
-export class OpenMemoryRESTClient implements IMemoryBackendClient {
+export class Mem0RESTClient implements IMemoryBackendClient {
   private baseUrl: string;
   private apiKey?: string;
+  private orgId?: string;
+  private projectId?: string;
 
   constructor() {
-    this.baseUrl = OPENMEMORY_API_URL;
+    this.baseUrl = OPENMEMORY_API_URL.replace(/\/+$/, "");
     this.apiKey = OPENMEMORY_API_KEY;
+    this.orgId = OPENMEMORY_ORG_ID || undefined;
+    this.projectId = OPENMEMORY_PROJECT_ID || undefined;
   }
 
   private async fetch(path: string, options: RequestInit = {}): Promise<Response> {
@@ -91,13 +87,34 @@ export class OpenMemoryRESTClient implements IMemoryBackendClient {
     };
 
     if (this.apiKey) {
-      headers["Authorization"] = `Bearer ${this.apiKey}`;
+      headers.Authorization = `Token ${this.apiKey}`;
     }
 
     return withTimeout(
       fetch(`${this.baseUrl}${path}`, { ...options, headers }),
       TIMEOUT_MS
     );
+  }
+
+  private withOrgProject<T extends Record<string, unknown>>(body: T): T & {
+    org_id?: string;
+    project_id?: string;
+  } {
+    return {
+      ...body,
+      ...(this.orgId && { org_id: this.orgId }),
+      ...(this.projectId && { project_id: this.projectId }),
+    };
+  }
+
+  private withOrgProjectParams(params: URLSearchParams): URLSearchParams {
+    if (this.orgId) {
+      params.set("org_id", this.orgId);
+    }
+    if (this.projectId) {
+      params.set("project_id", this.projectId);
+    }
+    return params;
   }
 
   private getScopeUserId(scope: MemoryScopeContext): string {
@@ -107,49 +124,76 @@ export class OpenMemoryRESTClient implements IMemoryBackendClient {
     return `${CONFIG.scopePrefix}:${scope.userId}`;
   }
 
+  private extractSector(record: Mem0MemoryRecord): MemorySector | undefined {
+    const metadataSector = isRecord(record.metadata) ? record.metadata.sector : undefined;
+    if (typeof metadataSector === "string") {
+      return metadataSector as MemorySector;
+    }
+    return undefined;
+  }
+
+  private toMemoryItem(record: Mem0MemoryRecord): MemoryItem {
+    const metadata = isRecord(record.metadata) ? record.metadata : undefined;
+    const metadataTags = metadata?.tags;
+    const tags = Array.isArray(metadataTags)
+      ? metadataTags.filter((tag): tag is string => typeof tag === "string")
+      : record.categories;
+
+    return {
+      id: record.id,
+      content: record.memory,
+      score: record.score ?? record.similarity,
+      salience: record.similarity,
+      sector: this.extractSector(record),
+      tags,
+      metadata,
+      createdAt: record.created_at,
+      updatedAt: record.updated_at,
+    };
+  }
+
+  private filterBySector(memories: MemoryItem[], sector?: MemorySector): MemoryItem[] {
+    if (!sector) return memories;
+    return memories.filter((memory) => memory.sector === sector);
+  }
+
   async searchMemories(
     query: string,
     scope: MemoryScopeContext,
     options?: { limit?: number; minSalience?: number; sector?: MemorySector }
   ): Promise<SearchMemoriesResult> {
-    log("OpenMemoryREST.searchMemories", { query: query.slice(0, 50), scope });
-    
-    try {
-      const userId = this.getScopeUserId(scope);
+    log("Mem0.searchMemories", { query: query.slice(0, 50), scope });
 
-      const response = await this.fetch("/memory/query", {
+    try {
+      const response = await this.fetch("/v2/memories/search", {
         method: "POST",
-        body: JSON.stringify({
-          query,
-          k: options?.limit ?? CONFIG.maxMemories,
-          user_id: userId,
-          filters: {
-            user_id: userId,
-            ...(options?.minSalience !== undefined && { min_score: options.minSalience }),
-            ...(options?.sector && { sector: options.sector }),
-          },
-        }),
+        body: JSON.stringify(
+          this.withOrgProject({
+            query,
+            top_k: options?.limit ?? CONFIG.maxMemories,
+            threshold: options?.minSalience ?? CONFIG.minSalience,
+            filters: {
+              user_id: this.getScopeUserId(scope),
+            },
+          })
+        ),
       });
-      
+
       if (!response.ok) {
         const errorText = await response.text();
         return { success: false, results: [], total: 0, error: `HTTP ${response.status}: ${errorText}` };
       }
 
-      const data = await response.json() as OpenMemoryQueryResponse;
-      const memories: MemoryItem[] = (data.matches || []).map((m) => ({
-        id: m.id,
-        content: m.content,
-        score: m.score ?? m.salience ?? 1,
-        salience: m.salience,
-        sector: m.primary_sector as MemorySector | undefined,
-      }));
+      const data = await response.json() as Mem0MemoryRecord[];
+      const memories = this.filterBySector(
+        (data || []).map((record) => this.toMemoryItem(record)),
+        options?.sector
+      );
 
-      log("OpenMemoryREST.searchMemories: success", { count: memories.length });
       return { success: true, results: memories, total: memories.length };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      log("OpenMemoryREST.searchMemories: error", { error: errorMessage });
+      log("Mem0.searchMemories: error", { error: errorMessage });
       return { success: false, results: [], total: 0, error: errorMessage };
     }
   }
@@ -159,25 +203,31 @@ export class OpenMemoryRESTClient implements IMemoryBackendClient {
     scope: MemoryScopeContext,
     options?: { type?: MemoryType; tags?: string[]; metadata?: Record<string, unknown> }
   ): Promise<AddMemoryResult> {
-    log("OpenMemoryREST.addMemory", { contentLength: content.length, scope });
-    
-    try {
-      const userId = this.getScopeUserId(scope);
+    log("Mem0.addMemory", { contentLength: content.length, scope });
 
-      const response = await this.fetch("/memory/add", {
+    try {
+      const response = await this.fetch("/v1/memories", {
         method: "POST",
-        body: JSON.stringify({
-          content,
-          user_id: userId,
-          tags: options?.tags,
-          metadata: {
-            ...options?.metadata,
-            type: options?.type,
-            scope: scope.projectId ? "project" : "user",
-            project_id: scope.projectId,
-            source: "opencode-openmemory",
-          },
-        }),
+        body: JSON.stringify(
+          this.withOrgProject({
+            user_id: this.getScopeUserId(scope),
+            messages: [
+              {
+                role: "user",
+                content,
+              },
+            ],
+            metadata: {
+              ...options?.metadata,
+              type: options?.type,
+              tags: options?.tags,
+              sector: options?.tags?.[0],
+              scope: scope.projectId ? "project" : "user",
+              project_id: scope.projectId,
+              source: "opencode-openmemory",
+            },
+          })
+        ),
       });
 
       if (!response.ok) {
@@ -185,12 +235,26 @@ export class OpenMemoryRESTClient implements IMemoryBackendClient {
         return { success: false, error: `HTTP ${response.status}: ${errorText}` };
       }
 
-      const data = await response.json() as OpenMemoryAddResponse;
-      log("OpenMemoryREST.addMemory: success", { id: data.id });
-      return { success: true, id: data.id, sector: data.primary_sector as MemorySector | undefined };
+      const data = await response.json() as
+        | Mem0AddResponse
+        | Mem0AddResponseItem
+        | Mem0AddResponseItem[];
+      const items = Array.isArray(data)
+        ? data
+        : Array.isArray(data.results)
+          ? data.results
+          : [data];
+      const firstItem = items[0];
+      const id = firstItem?.id ?? firstItem?.memory_id;
+
+      return {
+        success: true,
+        id,
+        sector: options?.tags?.[0] as MemorySector | undefined,
+      };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      log("OpenMemoryREST.addMemory: error", { error: errorMessage });
+      log("Mem0.addMemory: error", { error: errorMessage });
       return { success: false, error: errorMessage };
     }
   }
@@ -199,86 +263,88 @@ export class OpenMemoryRESTClient implements IMemoryBackendClient {
     scope: MemoryScopeContext,
     options?: { limit?: number; offset?: number; sector?: MemorySector }
   ): Promise<ListMemoriesResult> {
-    log("OpenMemoryREST.listMemories", { scope, limit: options?.limit });
-    
+    log("Mem0.listMemories", { scope, limit: options?.limit });
+
     try {
-      const userId = this.getScopeUserId(scope);
-      const params = new URLSearchParams({
-        user_id: userId,
-        l: String(options?.limit ?? CONFIG.maxProjectMemories),
+      const pageSize = options?.limit ?? CONFIG.maxProjectMemories;
+      const page = options?.offset ? Math.floor(options.offset / pageSize) + 1 : 1;
+
+      const response = await this.fetch("/v2/memories", {
+        method: "POST",
+        body: JSON.stringify(
+          this.withOrgProject({
+            filters: {
+              user_id: this.getScopeUserId(scope),
+            },
+            page,
+            page_size: pageSize,
+          })
+        ),
       });
-
-      if (options?.offset !== undefined) {
-        params.set("u", String(options.offset));
-      }
-
-      if (options?.sector) {
-        params.set("sector", options.sector);
-      }
-
-      const response = await this.fetch(`/memory/all?${params}`);
 
       if (!response.ok) {
         const errorText = await response.text();
         return { success: false, memories: [], error: `HTTP ${response.status}: ${errorText}` };
       }
 
-      const data = await response.json() as OpenMemoryListResponse;
-      const memories: MemoryItem[] = (data.items || []).map((m) => ({
-        id: m.id,
-        content: m.content,
-        salience: m.salience,
-        sector: m.primary_sector as MemorySector | undefined,
-        tags: m.tags,
-        metadata: m.metadata,
-        createdAt: m.created_at ? new Date(m.created_at * 1000).toISOString() : undefined,
-        updatedAt: m.updated_at ? new Date(m.updated_at * 1000).toISOString() : undefined,
-      }));
+      const data = await response.json() as Mem0MemoryRecord[];
+      const memories = this.filterBySector(
+        (data || []).map((record) => this.toMemoryItem(record)),
+        options?.sector
+      );
 
-      log("OpenMemoryREST.listMemories: success", { count: memories.length });
       return { success: true, memories, total: memories.length };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      log("OpenMemoryREST.listMemories: error", { error: errorMessage });
+      log("Mem0.listMemories: error", { error: errorMessage });
       return { success: false, memories: [], error: errorMessage };
     }
   }
 
   async deleteMemory(memoryId: string, scope: MemoryScopeContext): Promise<DeleteMemoryResult> {
-    log("OpenMemoryREST.deleteMemory", { memoryId });
-    
+    log("Mem0.deleteMemory", { memoryId });
+
     try {
-      const userId = this.getScopeUserId(scope);
-      const params = new URLSearchParams({ user_id: userId });
-
-      const response = await this.fetch(`/memory/${encodeURIComponent(memoryId)}?${params}`, {
+      const params = this.withOrgProjectParams(
+        new URLSearchParams({ user_id: this.getScopeUserId(scope) })
+      );
+      const response = await this.fetch(
+        `/v1/memories/${encodeURIComponent(memoryId)}?${params.toString()}`,
+        {
         method: "DELETE",
-      });
+        }
+      );
 
-      if (!response.ok) {
+      if (!response.ok && response.status !== 204) {
         const errorText = await response.text();
         return { success: false, error: `HTTP ${response.status}: ${errorText}` };
       }
 
-      log("OpenMemoryREST.deleteMemory: success");
       return { success: true };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      log("OpenMemoryREST.deleteMemory: error", { error: errorMessage });
+      log("Mem0.deleteMemory: error", { error: errorMessage });
       return { success: false, error: errorMessage };
     }
   }
 
-  async reinforceMemory(memoryId: string, boost: number = 0.1): Promise<{ success: boolean; error?: string }> {
-    log("OpenMemoryREST.reinforceMemory", { memoryId, boost });
-    
+  async createFeedback(
+    memoryId: string,
+    feedback: MemoryFeedback = "POSITIVE",
+    reason?: string
+  ): Promise<{ success: boolean; error?: string }> {
+    log("Mem0.createFeedback", { memoryId, feedback });
+
     try {
-      const response = await this.fetch("/memory/reinforce", {
+      const response = await this.fetch("/v1/feedback", {
         method: "POST",
-        body: JSON.stringify({
-          id: memoryId,
-          boost,
-        }),
+        body: JSON.stringify(
+          this.withOrgProject({
+            memory_id: memoryId,
+            feedback,
+            ...(reason && { feedback_reason: reason }),
+          })
+        ),
       });
 
       if (!response.ok) {
@@ -286,21 +352,26 @@ export class OpenMemoryRESTClient implements IMemoryBackendClient {
         return { success: false, error: `HTTP ${response.status}: ${errorText}` };
       }
 
-      log("OpenMemoryREST.reinforceMemory: success");
+      const data = await response.json() as Mem0FeedbackResponse;
+      log("Mem0.createFeedback: success", { feedbackId: data.id });
       return { success: true };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      log("OpenMemoryREST.reinforceMemory: error", { error: errorMessage });
+      log("Mem0.createFeedback: error", { error: errorMessage });
       return { success: false, error: errorMessage };
     }
   }
 
   async getProfile(scope: MemoryScopeContext, query?: string): Promise<ProfileResult> {
-    log("OpenMemoryREST.getProfile", { scope });
-    
+    log("Mem0.getProfile", { scope });
+
     try {
       const userScope = { userId: scope.userId };
-      const result = await this.searchMemories(query || "preferences style workflow", userScope, { limit: CONFIG.maxProfileItems * 2 });
+      const result = await this.searchMemories(
+        query || "preferences style workflow",
+        userScope,
+        { limit: CONFIG.maxProfileItems * 2 }
+      );
 
       if (!result.success) {
         return { success: false, error: result.error };
@@ -310,304 +381,53 @@ export class OpenMemoryRESTClient implements IMemoryBackendClient {
       const oneWeekAgo = now - 7 * 24 * 60 * 60 * 1000;
 
       const staticFacts = result.results
-        .filter(m => m.createdAt && new Date(m.createdAt).getTime() < oneWeekAgo)
+        .filter((memory) => memory.createdAt && new Date(memory.createdAt).getTime() < oneWeekAgo)
         .slice(0, CONFIG.maxProfileItems)
-        .map(m => m.content);
+        .map((memory) => memory.content);
 
       const dynamicFacts = result.results
-        .filter(m => !m.createdAt || new Date(m.createdAt).getTime() >= oneWeekAgo)
+        .filter((memory) => !memory.createdAt || new Date(memory.createdAt).getTime() >= oneWeekAgo)
         .slice(0, CONFIG.maxProfileItems)
-        .map(m => m.content);
+        .map((memory) => memory.content);
 
-      log("OpenMemoryREST.getProfile: success", { staticCount: staticFacts.length, dynamicCount: dynamicFacts.length });
       return { success: true, profile: { static: staticFacts, dynamic: dynamicFacts } };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      log("OpenMemoryREST.getProfile: error", { error: errorMessage });
+      log("Mem0.getProfile: error", { error: errorMessage });
       return { success: false, error: errorMessage };
-    }
-  }
-
-  async createTemporalFact(input: CreateTemporalFactInput): Promise<CreateTemporalFactResult> {
-    log("OpenMemoryREST.createTemporalFact", { subject: input.subject, predicate: input.predicate });
-    
-    try {
-      const response = await this.fetch("/api/temporal/fact", {
-        method: "POST",
-        body: JSON.stringify({
-          subject: input.subject,
-          predicate: input.predicate,
-          object: input.object,
-          valid_from: input.validFrom,
-          confidence: input.confidence,
-          metadata: input.metadata,
-        }),
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        return { success: false, error: `HTTP ${response.status}: ${errorText}` };
-      }
-
-      const data = await response.json() as {
-        id: string;
-        subject: string;
-        predicate: string;
-        object: string;
-        valid_from: string;
-        confidence: number;
-      };
-      
-      log("OpenMemoryREST.createTemporalFact: success", { id: data.id });
-      return {
-        success: true,
-        id: data.id,
-        subject: data.subject,
-        predicate: data.predicate,
-        object: data.object,
-        valid_from: data.valid_from,
-        confidence: data.confidence,
-      };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      log("OpenMemoryREST.createTemporalFact: error", { error: errorMessage });
-      return { success: false, error: errorMessage };
-    }
-  }
-
-  async queryTemporalFacts(input: QueryTemporalFactsInput): Promise<QueryTemporalFactsResult> {
-    log("OpenMemoryREST.queryTemporalFacts", { subject: input.subject, predicate: input.predicate });
-    
-    try {
-      const params = new URLSearchParams();
-      if (input.subject) params.set("subject", input.subject);
-      if (input.predicate) params.set("predicate", input.predicate);
-      if (input.object) params.set("object", input.object);
-      if (input.at) params.set("at", input.at);
-      if (input.minConfidence !== undefined) params.set("min_confidence", String(input.minConfidence));
-
-      const response = await this.fetch(`/api/temporal/fact?${params}`);
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        return { success: false, facts: [], count: 0, error: `HTTP ${response.status}: ${errorText}` };
-      }
-
-      const data = await response.json() as { facts: TemporalFact[]; count: number };
-      log("OpenMemoryREST.queryTemporalFacts: success", { count: data.count });
-      return { success: true, facts: data.facts, count: data.count };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      log("OpenMemoryREST.queryTemporalFacts: error", { error: errorMessage });
-      return { success: false, facts: [], count: 0, error: errorMessage };
-    }
-  }
-
-  async getCurrentFact(input: GetCurrentFactInput): Promise<GetCurrentFactResult> {
-    log("OpenMemoryREST.getCurrentFact", { subject: input.subject, predicate: input.predicate });
-    
-    try {
-      const params = new URLSearchParams({
-        subject: input.subject,
-        predicate: input.predicate,
-      });
-
-      const response = await this.fetch(`/api/temporal/fact/current?${params}`);
-
-      if (!response.ok) {
-        if (response.status === 404) {
-          return { success: true, fact: undefined };
-        }
-        const errorText = await response.text();
-        return { success: false, error: `HTTP ${response.status}: ${errorText}` };
-      }
-
-      const data = await response.json() as { fact: TemporalFact };
-      log("OpenMemoryREST.getCurrentFact: success", { id: data.fact?.id });
-      return { success: true, fact: data.fact };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      log("OpenMemoryREST.getCurrentFact: error", { error: errorMessage });
-      return { success: false, error: errorMessage };
-    }
-  }
-
-  async getTimeline(input: GetTimelineInput): Promise<GetTimelineResult> {
-    log("OpenMemoryREST.getTimeline", { subject: input.subject, predicate: input.predicate });
-    
-    try {
-      const params = new URLSearchParams({ subject: input.subject });
-      if (input.predicate) params.set("predicate", input.predicate);
-
-      const response = await this.fetch(`/api/temporal/timeline?${params}`);
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        return { success: false, subject: input.subject, timeline: [], count: 0, error: `HTTP ${response.status}: ${errorText}` };
-      }
-
-      const data = await response.json() as { subject: string; predicate?: string; timeline: any[]; count: number };
-      log("OpenMemoryREST.getTimeline: success", { count: data.count });
-      return {
-        success: true,
-        subject: data.subject,
-        predicate: data.predicate,
-        timeline: data.timeline,
-        count: data.count,
-      };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      log("OpenMemoryREST.getTimeline: error", { error: errorMessage });
-      return { success: false, subject: input.subject, timeline: [], count: 0, error: errorMessage };
-    }
-  }
-
-  async invalidateFact(input: InvalidateFactInput): Promise<InvalidateFactResult> {
-    log("OpenMemoryREST.invalidateFact", { id: input.id });
-    
-    try {
-      const response = await this.fetch(`/api/temporal/fact/${encodeURIComponent(input.id)}`, {
-        method: "DELETE",
-        body: JSON.stringify({ valid_to: input.validTo }),
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        return { success: false, error: `HTTP ${response.status}: ${errorText}` };
-      }
-
-      const data = await response.json() as { id: string; valid_to: string };
-      log("OpenMemoryREST.invalidateFact: success");
-      return { success: true, id: data.id, valid_to: data.valid_to };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      log("OpenMemoryREST.invalidateFact: error", { error: errorMessage });
-      return { success: false, error: errorMessage };
-    }
-  }
-
-  async getTemporalStats(): Promise<TemporalStatsResult> {
-    log("OpenMemoryREST.getTemporalStats");
-    
-    try {
-      const response = await this.fetch("/api/temporal/stats");
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        return { success: false, error: `HTTP ${response.status}: ${errorText}` };
-      }
-
-      const data = await response.json() as { active_facts: number; historical_facts: number; total_facts: number };
-      log("OpenMemoryREST.getTemporalStats: success", { total: data.total_facts });
-      return {
-        success: true,
-        active_facts: data.active_facts,
-        historical_facts: data.historical_facts,
-        total_facts: data.total_facts,
-      };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      log("OpenMemoryREST.getTemporalStats: error", { error: errorMessage });
-      return { success: false, error: errorMessage };
-    }
-  }
-
-  async compareFacts(input: CompareFactsInput): Promise<CompareFactsResult> {
-    log("OpenMemoryREST.compareFacts", { subject: input.subject, time1: input.time1, time2: input.time2 });
-    
-    try {
-      const params = new URLSearchParams({
-        subject: input.subject,
-        time1: input.time1,
-        time2: input.time2,
-      });
-
-      const response = await this.fetch(`/api/temporal/compare?${params}`);
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        return { success: false, added: [], removed: [], changed: [], unchanged: [], error: `HTTP ${response.status}: ${errorText}` };
-      }
-
-      const data = await response.json() as {
-        subject: string;
-        time1: string;
-        time2: string;
-        added: TemporalFact[];
-        removed: TemporalFact[];
-        changed: Array<{ before: TemporalFact; after: TemporalFact }>;
-        unchanged: TemporalFact[];
-      };
-      
-      log("OpenMemoryREST.compareFacts: success");
-      return {
-        success: true,
-        subject: data.subject,
-        time1: data.time1,
-        time2: data.time2,
-        added: data.added,
-        removed: data.removed,
-        changed: data.changed,
-        unchanged: data.unchanged,
-      };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      log("OpenMemoryREST.compareFacts: error", { error: errorMessage });
-      return { success: false, added: [], removed: [], changed: [], unchanged: [], error: errorMessage };
     }
   }
 }
 
-let clientInstance: OpenMemoryRESTClient | null = null;
+let clientInstance: Mem0RESTClient | null = null;
 
-export function getMemoryClient(): OpenMemoryRESTClient {
+export function getMemoryClient(): Mem0RESTClient {
   if (!clientInstance) {
-    clientInstance = new OpenMemoryRESTClient();
+    clientInstance = new Mem0RESTClient();
   }
   return clientInstance;
 }
 
 export const openMemoryClient = {
-  get client(): OpenMemoryRESTClient {
+  get client(): Mem0RESTClient {
     return getMemoryClient();
   },
-  
-  searchMemories: (query: string, scope: MemoryScopeContext, options?: { limit?: number; minSalience?: number; sector?: MemorySector }) => 
+
+  searchMemories: (query: string, scope: MemoryScopeContext, options?: { limit?: number; minSalience?: number; sector?: MemorySector }) =>
     getMemoryClient().searchMemories(query, scope, options),
-  
-  addMemory: (content: string, scope: MemoryScopeContext, options?: { type?: MemoryType; tags?: string[]; metadata?: Record<string, unknown> }) => 
+
+  addMemory: (content: string, scope: MemoryScopeContext, options?: { type?: MemoryType; tags?: string[]; metadata?: Record<string, unknown> }) =>
     getMemoryClient().addMemory(content, scope, options),
-  
-  listMemories: (scope: MemoryScopeContext, options?: { limit?: number; offset?: number; sector?: MemorySector }) => 
+
+  listMemories: (scope: MemoryScopeContext, options?: { limit?: number; offset?: number; sector?: MemorySector }) =>
     getMemoryClient().listMemories(scope, options),
-  
-  deleteMemory: (memoryId: string, scope: MemoryScopeContext) => 
+
+  deleteMemory: (memoryId: string, scope: MemoryScopeContext) =>
     getMemoryClient().deleteMemory(memoryId, scope),
-  
-  getProfile: (scope: MemoryScopeContext, query?: string) => 
+
+  getProfile: (scope: MemoryScopeContext, query?: string) =>
     getMemoryClient().getProfile(scope, query),
 
-  reinforceMemory: (memoryId: string, boost?: number) =>
-    getMemoryClient().reinforceMemory(memoryId, boost),
-
-  createTemporalFact: (input: CreateTemporalFactInput) =>
-    getMemoryClient().createTemporalFact(input),
-
-  queryTemporalFacts: (input: QueryTemporalFactsInput) =>
-    getMemoryClient().queryTemporalFacts(input),
-
-  getCurrentFact: (input: GetCurrentFactInput) =>
-    getMemoryClient().getCurrentFact(input),
-
-  getTimeline: (input: GetTimelineInput) =>
-    getMemoryClient().getTimeline(input),
-
-  invalidateFact: (input: InvalidateFactInput) =>
-    getMemoryClient().invalidateFact(input),
-
-  getTemporalStats: () =>
-    getMemoryClient().getTemporalStats(),
-
-  compareFacts: (input: CompareFactsInput) =>
-    getMemoryClient().compareFacts(input),
+  createFeedback: (memoryId: string, feedback?: MemoryFeedback, reason?: string) =>
+    getMemoryClient().createFeedback(memoryId, feedback, reason),
 };

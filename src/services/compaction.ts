@@ -60,7 +60,7 @@ export interface CompactionOptions {
 function createCompactionPrompt(projectMemories: string[]): string {
   const memoriesSection = projectMemories.length > 0 
     ? `
-## Project Knowledge (from OpenMemory)
+## Project Knowledge (from Mem0)
 The following project-specific knowledge should be preserved and referenced in the summary:
 ${projectMemories.map(m => `- ${m}`).join('\n')}
 `
@@ -380,7 +380,7 @@ export function createCompactionHook(
     await ctx.client.tui.showToast({
       body: {
         title: "Preemptive Compaction",
-        message: `Context at ${(usageRatio * 100).toFixed(0)}% - compacting with OpenMemory context...`,
+        message: `Context at ${(usageRatio * 100).toFixed(0)}% - compacting with Mem0 context...`,
         variant: "warning",
         duration: 3000,
       },
@@ -409,7 +409,7 @@ export function createCompactionHook(
       await ctx.client.tui.showToast({
         body: {
           title: "Compaction Complete",
-          message: "Session compacted with OpenMemory context. Resuming...",
+          message: "Session compacted with Mem0 context. Resuming...",
           variant: "success",
           duration: 2000,
         },

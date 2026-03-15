@@ -12,6 +12,11 @@ const CONFIG_FILES = [
 interface OpenMemoryConfig {
   apiUrl?: string;
   apiKey?: string;
+  orgId?: string;
+  projectId?: string;
+  filterPrompt?: string;
+  keywordPatterns?: string[];
+  compactionThreshold?: number;
   
   similarityThreshold?: number;
   maxMemories?: number;
@@ -25,7 +30,12 @@ interface OpenMemoryConfig {
 }
 
 const DEFAULTS: Required<Omit<OpenMemoryConfig, "apiKey">> = {
-  apiUrl: "http://localhost:8080",
+  apiUrl: "https://api.mem0.ai",
+  orgId: "",
+  projectId: "",
+  filterPrompt: "",
+  keywordPatterns: [],
+  compactionThreshold: 0.8,
   similarityThreshold: 0.6,
   maxMemories: 5,
   maxProjectMemories: 10,
@@ -52,12 +62,34 @@ function loadConfig(): OpenMemoryConfig {
 }
 
 const fileConfig = loadConfig();
+const keywordPatterns = Array.isArray(fileConfig.keywordPatterns)
+  ? fileConfig.keywordPatterns.filter((pattern): pattern is string => typeof pattern === "string")
+  : DEFAULTS.keywordPatterns;
+const compactionThreshold =
+  typeof fileConfig.compactionThreshold === "number" &&
+  fileConfig.compactionThreshold >= 0 &&
+  fileConfig.compactionThreshold <= 1
+    ? fileConfig.compactionThreshold
+    : DEFAULTS.compactionThreshold;
+
+function isPlaceholderApiKey(value: string | undefined): boolean {
+  if (!value) return true;
+  const normalized = value.trim();
+  return normalized.length === 0 || normalized === "m0-your-api-key";
+}
 
 export const OPENMEMORY_API_KEY = fileConfig.apiKey ?? process.env.OPENMEMORY_API_KEY;
 export const OPENMEMORY_API_URL = fileConfig.apiUrl ?? process.env.OPENMEMORY_API_URL ?? DEFAULTS.apiUrl;
+export const OPENMEMORY_ORG_ID = fileConfig.orgId ?? process.env.OPENMEMORY_ORG_ID ?? DEFAULTS.orgId;
+export const OPENMEMORY_PROJECT_ID = fileConfig.projectId ?? process.env.OPENMEMORY_PROJECT_ID ?? DEFAULTS.projectId;
 
 export const CONFIG = {
   apiUrl: OPENMEMORY_API_URL,
+  orgId: OPENMEMORY_ORG_ID,
+  projectId: OPENMEMORY_PROJECT_ID,
+  filterPrompt: fileConfig.filterPrompt ?? DEFAULTS.filterPrompt,
+  keywordPatterns,
+  compactionThreshold,
   similarityThreshold: fileConfig.similarityThreshold ?? DEFAULTS.similarityThreshold,
   maxMemories: fileConfig.maxMemories ?? DEFAULTS.maxMemories,
   maxProjectMemories: fileConfig.maxProjectMemories ?? DEFAULTS.maxProjectMemories,
@@ -69,5 +101,5 @@ export const CONFIG = {
 };
 
 export function isConfigured(): boolean {
-  return true;
+  return !isPlaceholderApiKey(OPENMEMORY_API_KEY);
 }

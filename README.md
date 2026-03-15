@@ -3,14 +3,13 @@
 [![npm version](https://badge.fury.io/js/@happycastle%2Fopencode-openmemory.svg)](https://www.npmjs.com/package/@happycastle%2Fopencode-openmemory)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**Local-first, privacy-focused persistent memory for OpenCode agents** using [OpenMemory](https://github.com/CaviraOSS/OpenMemory).
+**Persistent memory for OpenCode agents** using [Mem0 Platform API](https://docs.mem0.ai/api-reference).
 
-A fork of [opencode-supermemory](https://github.com/supermemoryai/opencode-supermemory), redesigned to work with OpenMemory - an open-source, self-hosted cognitive memory engine that keeps your data on your machine.
+A fork of [opencode-supermemory](https://github.com/supermemoryai/opencode-supermemory), adapted to work with Mem0's hosted memory API.
 
 ## Features
 
-- **Local-first**: All memories stored on your machine via OpenMemory
-- **Privacy-focused**: No data sent to external services
+- **Hosted memory backend**: Memories are stored and queried through Mem0's API
 - **Automatic context injection**: User profile, project memory, and relevant memories injected into conversations
 - **Explicit & implicit memory capture**: Save memories with "remember this" or let the agent extract knowledge automatically
 - **Scope separation**: User-level (cross-project) vs project-level memories
@@ -28,11 +27,11 @@ A fork of [opencode-supermemory](https://github.com/supermemoryai/opencode-super
                     │
                     v
 ┌───────────────────────────────────────────────────────────────┐
-│                 OpenMemory Server (REST API)                   │
-│  - Store: raw notes / facts / events / snippets                │
+│                   Mem0 Platform API                            │
+│  - Store: raw notes / facts / snippets                         │
 │  - Index: embeddings + metadata (scope/recency/type)           │
-│  - Retrieval: hybrid scoring (similarity + salience + decay)   │
-│  - Default: http://localhost:8080                              │
+│  - Retrieval: hosted search and ranking                        │
+│  - Default: https://api.mem0.ai                                │
 └───────────────────────────────────────────────────────────────┘
 ```
 
@@ -52,32 +51,15 @@ Or manually add to `~/.config/opencode/opencode.jsonc`:
 }
 ```
 
-### 2. Start OpenMemory
+### 2. Create a Mem0 API key
 
-**Option A: Docker (recommended)**
+Create an API key in the [Mem0 dashboard](https://app.mem0.ai/) and keep it available for configuration.
 
-```bash
-git clone https://github.com/CaviraOSS/OpenMemory.git
-cd OpenMemory
-cp .env.example .env
-# Edit .env with your OPENAI_API_KEY (for embeddings)
-docker compose up --build -d
-```
-
-**Option B: Manual setup (for development)**
-
-```bash
-git clone https://github.com/CaviraOSS/OpenMemory.git
-cd OpenMemory/backend
-npm install
-npm run dev   # Starts on :8080 by default
-```
-
-For more details, see the [OpenMemory documentation](https://github.com/CaviraOSS/OpenMemory).
+Optional: if your Mem0 workspace uses explicit org/project routing, collect those IDs too.
 
 ### 3. Restart OpenCode
 
-The plugin will automatically connect to OpenMemory REST API at `http://localhost:8080`.
+The plugin will connect to Mem0 Platform API at `https://api.mem0.ai`.
 
 ## Configuration
 
@@ -85,8 +67,24 @@ Create `~/.config/opencode/openmemory.jsonc`:
 
 ```jsonc
 {
-  // OpenMemory REST API URL
-  "apiUrl": "http://localhost:8080",
+  // Mem0 API URL
+  "apiUrl": "https://api.mem0.ai",
+
+  // Required: Mem0 API key
+  "apiKey": "m0-...",
+
+  // Optional: workspace routing for Mem0 Platform API
+  "orgId": "",
+  "projectId": "",
+
+  // Optional: custom regex patterns that trigger memory capture
+  "keywordPatterns": ["\\bremember this\\b", "\\bnote this\\b"],
+
+  // Optional: extra filtering guidance appended to the memory-capture nudge
+  "filterPrompt": "Only store durable preferences, workflows, and project conventions.",
+
+  // Optional: preemptive compaction threshold from 0 to 1
+  "compactionThreshold": 0.8,
   
   // Search settings
   "similarityThreshold": 0.6,
@@ -137,6 +135,7 @@ The `openmemory` tool is available with these modes:
 | `profile` | View user profile | `query?` |
 | `list` | List recent memories | `scope?`, `limit?` |
 | `forget` | Remove a memory | `memoryId`, `scope?` |
+| `feedback` | Send Mem0 feedback for a memory | `memoryId`, `feedback?`, `reason?` |
 | `help` | Show usage guide | - |
 
 **Scopes:**
@@ -150,6 +149,15 @@ The `openmemory` tool is available with these modes:
 - `error-solution`: Known issues and their fixes
 - `preference`: Coding style preferences
 - `conversation`: Session summaries
+
+You can also configure the same values with environment variables:
+
+```bash
+export OPENMEMORY_API_URL="https://api.mem0.ai"
+export OPENMEMORY_API_KEY="m0-..."
+export OPENMEMORY_ORG_ID=""
+export OPENMEMORY_PROJECT_ID=""
+```
 
 ### Initialize Memory
 
@@ -207,10 +215,10 @@ bun run build && opencode --plugin ./dist/index.js
 
 | Feature | opencode-supermemory | @eddy.soungmin/opencode-openmemory |
 |---------|---------------------|-------------------------------------|
-| Backend | Supermemory Cloud | OpenMemory (local) |
-| Data Location | Cloud | Your machine |
-| Privacy | Requires API key | Fully local |
-| Cost | API usage fees | Free (self-hosted) |
+| Backend | Supermemory Cloud | Mem0 Platform API |
+| Data Location | Cloud | Mem0 workspace |
+| Auth | API key | API key |
+| Operations | Hosted | Hosted |
 
 ## License
 
@@ -229,7 +237,7 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 ## Credits
 
 - Based on [opencode-supermemory](https://github.com/supermemoryai/opencode-supermemory) by Supermemory
-- Uses [OpenMemory](https://github.com/CaviraOSS/OpenMemory) by CaviraOSS
+- Uses [Mem0](https://mem0.ai/) Platform API
 - Developed by [@happycastle114](https://github.com/happycastle114)
 
 ## Special Thanks

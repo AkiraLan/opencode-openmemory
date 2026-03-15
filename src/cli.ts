@@ -339,13 +339,18 @@ function createOpenMemoryConfig(): boolean {
   mkdirSync(OPENCODE_CONFIG_DIR, { recursive: true });
   
   const config = `{
-  // OpenMemory Backend Configuration
-  // Options: "openmemory" (MCP - default), "openmemory-rest" (REST API)
-  "backend": "openmemory",
-  
-  // REST API settings (only used when backend is "openmemory-rest")
-  // "apiUrl": "http://localhost:8080",
-  // "apiKey": "your-api-key-if-needed",
+  // Mem0 Platform API settings
+  "apiUrl": "https://api.mem0.ai",
+  // "apiKey": "m0-your-api-key",
+  // Optional: workspace routing
+  // "orgId": "",
+  // "projectId": "",
+  // Optional: custom memory trigger regex patterns
+  // "keywordPatterns": ["\\\\bremember this\\\\b", "\\\\bnote this\\\\b"],
+  // Optional: extra instruction appended when memory capture is triggered
+  // "filterPrompt": "Only store durable preferences, workflows, and project conventions.",
+  // Optional: compaction threshold from 0 to 1
+  // "compactionThreshold": 0.8,
   
   // Search settings
   "similarityThreshold": 0.6,
@@ -459,22 +464,15 @@ async function install(options: InstallOptions): Promise<number> {
     }
   }
 
-  // Step 5: OpenMemory setup instructions
+  // Step 5: Mem0 setup instructions
   console.log("\n" + "─".repeat(50));
-  console.log("\n🚀 Final step: Start OpenMemory\n");
-  console.log("OpenMemory runs locally on your machine. To start it:\n");
-  console.log("Option 1: Docker (recommended)");
-  console.log("  git clone https://github.com/CaviraOSS/OpenMemory.git");
-  console.log("  cd OpenMemory");
-  console.log("  cp .env.example .env");
-  console.log("  docker compose up --build -d\n");
-  console.log("Option 2: Manual setup (for development)");
-  console.log("  git clone https://github.com/CaviraOSS/OpenMemory.git");
-  console.log("  cd OpenMemory/backend");
-  console.log("  npm install");
-  console.log("  npm run dev\n");
-  console.log("For more details, see: https://github.com/CaviraOSS/OpenMemory");
-  console.log("\nThen configure your ~/.config/opencode/openmemory.jsonc if needed.");
+  console.log("\n🚀 Final step: Configure Mem0\n");
+  console.log("1. Create a Mem0 API key in the dashboard:");
+  console.log("   https://app.mem0.ai/\n");
+  console.log("2. Update ~/.config/opencode/openmemory.jsonc with your key.");
+  console.log("   Optional: also set orgId/projectId if your workspace requires them.\n");
+  console.log("3. Reference docs:");
+  console.log("   https://docs.mem0.ai/api-reference");
   console.log("\n" + "─".repeat(50));
   console.log("\n✓ Setup complete! Restart OpenCode to activate.\n");
 
@@ -484,7 +482,7 @@ async function install(options: InstallOptions): Promise<number> {
 
 function printHelp(): void {
   console.log(`
-opencode-openmemory - Local-first persistent memory for OpenCode agents
+opencode-openmemory - Persistent memory for OpenCode agents using Mem0
 
 Commands:
   install                    Install and configure the plugin
