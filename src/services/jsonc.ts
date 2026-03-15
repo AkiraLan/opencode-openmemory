@@ -81,3 +81,51 @@ export function stripJsoncComments(content: string): string {
 
   return result;
 }
+
+/**
+ * Removes trailing commas from JSON/JSONC content while respecting strings.
+ */
+export function stripJsonTrailingCommas(content: string): string {
+  let result = "";
+  let i = 0;
+  let inString = false;
+
+  while (i < content.length) {
+    const char = content[i];
+
+    if (char === '"') {
+      let backslashCount = 0;
+      let j = i - 1;
+      while (j >= 0 && content[j] === "\\") {
+        backslashCount++;
+        j--;
+      }
+      if (backslashCount % 2 === 0) {
+        inString = !inString;
+      }
+      result += char;
+      i++;
+      continue;
+    }
+
+    if (!inString && char === ",") {
+      let j = i + 1;
+      while (j < content.length && /\s/.test(content[j])) {
+        j++;
+      }
+      if (content[j] === "}" || content[j] === "]") {
+        i++;
+        continue;
+      }
+    }
+
+    result += char;
+    i++;
+  }
+
+  return result;
+}
+
+export function parseJsonc<T>(content: string): T {
+  return JSON.parse(stripJsonTrailingCommas(stripJsoncComments(content))) as T;
+}

@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import * as readline from "node:readline";
-import { stripJsoncComments } from "./services/jsonc.js";
+import { parseJsonc } from "./services/jsonc.js";
 
 const OPENCODE_CONFIG_DIR = join(homedir(), ".config", "opencode");
 const OPENCODE_COMMAND_DIR = join(OPENCODE_CONFIG_DIR, "command");
@@ -216,11 +216,10 @@ function addPluginToConfig(configPath: string): boolean {
       return true;
     }
 
-    const jsonContent = stripJsoncComments(content);
     let config: Record<string, unknown>;
     
     try {
-      config = JSON.parse(jsonContent);
+      config = parseJsonc<Record<string, unknown>>(content);
     } catch {
       console.error("✗ Failed to parse config file");
       return false;
@@ -325,7 +324,7 @@ function isAutoCompactAlreadyDisabled(): boolean {
   
   try {
     const content = readFileSync(OH_MY_OPENCODE_CONFIG, "utf-8");
-    const config = JSON.parse(content);
+    const config = parseJsonc<Record<string, unknown>>(content);
     const disabledHooks = config.disabled_hooks as string[] | undefined;
     return disabledHooks?.includes("anthropic-context-window-limit-recovery") ?? false;
   } catch {
@@ -339,7 +338,7 @@ function disableAutoCompactHook(): boolean {
     
     if (existsSync(OH_MY_OPENCODE_CONFIG)) {
       const content = readFileSync(OH_MY_OPENCODE_CONFIG, "utf-8");
-      config = JSON.parse(content);
+      config = parseJsonc<Record<string, unknown>>(content);
     }
     
     const disabledHooks = (config.disabled_hooks as string[]) || [];
